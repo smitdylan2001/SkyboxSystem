@@ -7,6 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
     MODELS_DIR=/models \
     HF_HOME=/models/huggingface \
     TORCH_HOME=/models/torch \
@@ -20,12 +21,16 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Keep the base image's torch/torchvision (never let pip swap them for another CUDA build).
-COPY requirements.txt .
-RUN python -c "import importlib.metadata as m; print('\n'.join(f'{p}=={m.version(p).split(\"+\")[0]}' for p in ('torch', 'torchvision') if any(d.metadata['Name'].lower() == p for d in m.distributions())))" > /tmp/constraints.txt \
+# The base image is Ubuntu's system Python 3.12 with torch preinstalled, so pip needs
+# PIP_BREAK_SYSTEM_PACKAGES (PEP 668) and a constraint that keeps the image's torch/torchvision
+# (never let pip swap them for another CUDA build).
+COPY requirements.txt docker/torch_constraints.py ./
+RUN python torch_constraints.py > /tmp/constraints.txt \
  && cat /tmp/constraints.txt \
- && pip install -c /tmp/constraints.txt -r requirements.txt \
- && pip install --no-deps "moge @ git+https://github.com/microsoft/MoGe.git@74fbce054ebed49800de42d0ad0e83495065719a"
+ && pip install -c /tmp/constraints.txt -r requirements.txt
+
+# MoGe without its heavy optional dependencies (gradio, flex-gemm, ...).
+RUN pip install --no-deps "moge @ git+https://github.com/microsoft/MoGe.git@74fbce054ebed49800de42d0ad0e83495065719a"
 
 COPY app ./app
 COPY tools ./tools

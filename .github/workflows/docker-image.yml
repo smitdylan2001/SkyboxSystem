@@ -16,6 +16,7 @@ on:
       - "app/**"
       - "tools/**"
       - "Dockerfile"
+      - "docker/**"
       - "requirements.txt"
       - ".dockerignore"
       - ".github/workflows/docker-image.yml"
@@ -31,7 +32,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - name: Free disk space (the CUDA + PyTorch image needs ~25 GB)
@@ -72,6 +73,13 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Show build errors as an annotation (job logs need a GitHub login, annotations don't)
+        if: failure() && steps.build.outcome == 'failure'
+        run: |
+          docker buildx build --progress=plain --cache-from type=gha . > build.log 2>&1 || true
+          msg=$(grep -vE '^#[0-9]+ (sha256|extracting|DONE|CACHED)' build.log | tail -n 45 | tr -d '\r' | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=docker build output (tail)::${msg}"
 
       - name: Pull the pushed image
         run: |
