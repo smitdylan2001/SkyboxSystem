@@ -1,0 +1,29 @@
+# torch / torchvision come from the base image (pytorch/pytorch:2.14.1-cuda13.0-cudnn9-runtime).
+# MoGe itself is installed separately with --no-deps (see Dockerfile) to avoid gradio & co.
+
+# --- API --------------------------------------------------------------------
+fastapi>=0.115
+uvicorn[standard]>=0.32
+python-multipart>=0.0.18
+
+# --- Generation (FLUX.1-dev NF4 + DiT360 LoRA, Qwen3-VL captioning) --------------
+diffusers==0.41.0
+transformers==5.19.0
+accelerate==1.15.0
+peft==0.21.2
+bitsandbytes==0.50.2
+huggingface_hub>=1.32,<2
+safetensors
+sentencepiece
+protobuf
+
+# --- Upscaling / depth / people detection ----------------------------------------
+spandrel==0.4.2
+numpy>=2
+pillow>=11
+scipy>=1.11
+opencv-python-headless>=4.10
+tqdm
+click
+typing_extensions
+utils3d_moge @ git+https://github.com/EasternJournalist/utils3d-moge.git@62f09d58509485564e24d5d9f6aac9ee9ebc0c37

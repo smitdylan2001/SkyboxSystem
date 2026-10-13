@@ -1,0 +1,7 @@
+.localtest/
+models/
+data/
+run_once_out/
+__pycache__/
+*.pyc
+.env

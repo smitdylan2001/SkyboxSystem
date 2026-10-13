@@ -1,0 +1,54 @@
+# Skybox generator: image in -> equirectangular skybox + depth map out.
+# Settings come from .env (CLI) or the OMV compose plugin's environment field.
+# Empty values fall back to the defaults documented in .env.example.
+
+services:
+  skybox:
+    build:
+      context: .
+    image: skybox-generator:1.0
+    container_name: skybox-generator
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8790}:8000"
+    volumes:
+      - ${MODELS_PATH:-./models}:/models   # ~20 GB of model weights (put on an SSD if possible)
+      - ${DATA_PATH:-./data}:/data         # job queue (SQLite) + inputs/results
+    environment:
+      API_KEYS: ${API_KEYS:?Set API_KEYS in .env}
+      HF_TOKEN: ${HF_TOKEN:-}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-}
+      MAX_QUEUE: ${MAX_QUEUE:-}
+      RESULT_TTL_HOURS: ${RESULT_TTL_HOURS:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      LOG_LEVEL: ${LOG_LEVEL:-}
+      MOCK_PIPELINE: ${MOCK_PIPELINE:-}
+      PREFETCH_ON_START: ${PREFETCH_ON_START:-}
+      GEN_WIDTH: ${GEN_WIDTH:-}
+      GEN_HEIGHT: ${GEN_HEIGHT:-}
+      OUT_WIDTH: ${OUT_WIDTH:-}
+      STEPS: ${STEPS:-}
+      GUIDANCE: ${GUIDANCE:-}
+      SEAM_ROLL_TOKENS: ${SEAM_ROLL_TOKENS:-}
+      SEAM_ENSEMBLE_STEPS: ${SEAM_ENSEMBLE_STEPS:-}
+      PANO_LORA_REPO: ${PANO_LORA_REPO:-}
+      PANO_LORA_WEIGHT: ${PANO_LORA_WEIGHT:-}
+      PANO_LORA_SCALE: ${PANO_LORA_SCALE:-}
+      PANO_PROMPT_TEMPLATE: ${PANO_PROMPT_TEMPLATE:-}
+      REDUX_STRENGTH: ${REDUX_STRENGTH:-}
+      CAPTION_MODEL: ${CAPTION_MODEL:-}
+      REMOVE_PEOPLE: ${REMOVE_PEOPLE:-}
+      PEOPLE_SCORE: ${PEOPLE_SCORE:-}
+      PEOPLE_MAX_REGIONS: ${PEOPLE_MAX_REGIONS:-}
+      DEPTH_MODE: ${DEPTH_MODE:-}
+      SKY_MODEL: ${SKY_MODEL:-}
+      DEPTH_MERGE_WIDTH: ${DEPTH_MERGE_WIDTH:-}
+      JPEG_QUALITY: ${JPEG_QUALITY:-}
+    shm_size: "2gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
