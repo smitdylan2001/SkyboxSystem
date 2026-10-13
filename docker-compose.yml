@@ -1,12 +1,16 @@
 # Skybox generator: image in -> equirectangular skybox + depth map out.
+#
+# The image is built by GitHub Actions and pulled from GitHub Container Registry, so the
+# server only needs this file (paste it into OMV: Services > Compose > Files) plus settings.
 # Settings come from .env (CLI) or the OMV compose plugin's environment field.
 # Empty values fall back to the defaults documented in .env.example.
+#
+# Update to the newest build:   docker compose pull && docker compose up -d
+# Build locally instead:        docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 services:
   skybox:
-    build:
-      context: .
-    image: skybox-generator:1.0
+    image: ghcr.io/smitdylan2001/skyboxsystem:${SKYBOX_TAG:-latest}
     container_name: skybox-generator
     restart: unless-stopped
     ports:

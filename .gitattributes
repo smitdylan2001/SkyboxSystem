@@ -1,0 +1,8 @@
+* text=auto
+# Built/run on Linux: keep LF regardless of the committer's core.autocrlf.
+Dockerfile text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.txt text eol=lf
+.env.example text eol=lf

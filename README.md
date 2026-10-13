@@ -43,31 +43,49 @@ downloads the models (~20 GB).
 
 ## 1. Deploy on OpenMediaVault 8
 
-Prerequisites: Docker with NVIDIA GPU access (`docker run --rm --gpus all ubuntu nvidia-smi` works).
-The image uses CUDA 13.0, so the host driver must be **580 or newer** (`nvidia-smi` shows the version). For an
-older driver, build with `--build-arg BASE_IMAGE=pytorch/pytorch:2.14.1-cuda12.6-cudnn9-runtime`.
+The Docker image is built by GitHub Actions ([`.github/workflows/docker-image.yml`](.github/workflows/docker-image.yml))
+on every push and published to GitHub Container Registry as **`ghcr.io/smitdylan2001/skyboxsystem`**:
 
-1. **Copy this folder to the server**, e.g. `/srv/dev-disk-by-uuid-XXXX/appdata/skybox-system`
-   (git clone, SMB share or `scp -r`). Put `models/` on an SSD if you can, because every job reads ~20 GB of
-   weights from disk (the 16 GB RAM can't cache them all).
-2. **Create `.env`** from the example and set at least an API key:
-   ```bash
-   cp .env.example .env
-   openssl rand -hex 32
-   ```
-   Paste the output into `API_KEYS=` and set `MODELS_PATH` / `DATA_PATH` to absolute paths on your data disk.
-3. **Build and start** (SSH into the server, inside the folder):
-   ```bash
-   docker compose up -d --build
-   ```
-   *OMV web UI alternative:* Services → Compose → Files → Add. Paste `docker-compose.yml`, change
-   `build: context: .` to the absolute folder path from step 1, paste your `.env` contents into the
-   Environment field, then Up.
-4. **Wait for the model download** on first start, then check health:
+| Tag | Built from |
+|---|---|
+| `latest` | `main` |
+| `<branch>` | any other branch |
+| `1.2.0` | a git tag `v1.2.0` |
+| `sha-abc1234` | every commit (pin this for reproducible deploys) |
+
+Each build is smoke-tested on the runner (all ML imports plus a full API/queue round trip in mock mode)
+before you pull it. The server needs **no source code and no local build**, just the compose file and
+your settings.
+
+Prerequisites: Docker with NVIDIA GPU access (`docker run --rm --gpus all ubuntu nvidia-smi` works).
+The image uses CUDA 13.0, so the host driver must be **580 or newer** (`nvidia-smi` shows the version).
+
+1. **Folders**: create two folders on a data disk, e.g. `/srv/dev-disk-by-uuid-XXXX/appdata/skybox/models`
+   and `.../skybox/data`. Put `models` on an SSD if you can, because every job reads ~20 GB of weights from
+   disk (the 16 GB RAM can't cache them all).
+2. **Compose file**: in OMV go to Services → Compose → Files → Add, name it `skybox`, and paste
+   [`docker-compose.yml`](docker-compose.yml).
+3. **Settings**: paste the contents of [`.env.example`](.env.example) into the file's Environment field and set:
+   * `API_KEYS=`: a long random string (`openssl rand -hex 32`)
+   * `MODELS_PATH=` and `DATA_PATH=`: the two absolute folder paths from step 1
+4. **Start**: click Up (or, over SSH next to the files, `docker compose up -d`). Docker pulls the image
+   (~10 GB, once) and the container downloads the models (~20 GB, once). Follow it with:
    ```bash
    docker logs -f skybox-generator
    ```
    Wait for `all models present`, then `curl http://localhost:8790/health` should show `"worker":"idle"`.
+
+**Updating** to the newest build: in OMV press Pull and then Up, or over SSH:
+```bash
+docker compose pull && docker compose up -d
+```
+Queued jobs survive the restart. To pin a specific build, set `SKYBOX_TAG=sha-abc1234`.
+
+**Building locally instead** (e.g. for a driver older than 580), from a checkout of this repo:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml build --build-arg BASE_IMAGE=pytorch/pytorch:2.14.1-cuda12.6-cudnn9-runtime
+```
+Then start it with `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d`.
 
 ### Nginx Proxy Manager (`sky.dylansmit.dev`)
 

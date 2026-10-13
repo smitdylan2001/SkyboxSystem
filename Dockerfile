@@ -22,7 +22,8 @@ WORKDIR /app
 
 # Keep the base image's torch/torchvision (never let pip swap them for another CUDA build).
 COPY requirements.txt .
-RUN pip freeze | grep -iE '^(torch|torchvision)==' > /tmp/constraints.txt \
+RUN python -c "import importlib.metadata as m; print('\n'.join(f'{p}=={m.version(p).split(\"+\")[0]}' for p in ('torch', 'torchvision') if any(d.metadata['Name'].lower() == p for d in m.distributions())))" > /tmp/constraints.txt \
+ && cat /tmp/constraints.txt \
  && pip install -c /tmp/constraints.txt -r requirements.txt \
  && pip install --no-deps "moge @ git+https://github.com/microsoft/MoGe.git@74fbce054ebed49800de42d0ad0e83495065719a"
 
