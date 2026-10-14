@@ -8,7 +8,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_BREAK_SYSTEM_PACKAGES=1 \
     MODELS_DIR=/models \
     HF_HOME=/models/huggingface \
     TORCH_HOME=/models/torch \

@@ -1,4 +1,4 @@
-"""Single GPU worker thread: takes jobs from the FIFO queue one at a time."""
+"""Single worker thread: takes jobs from the FIFO queue one at a time (real and test jobs alike)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import traceback
 
 from .config import Settings
 from .jobs import Job, JobStore
-from .pipeline import JobCancelled, JobContext, Pipeline, create_pipeline
+from .pipeline import JobCancelled, JobContext, Pipeline, create_pipeline, create_test_pipeline
 
 log = logging.getLogger("skybox.worker")
 
@@ -26,6 +26,7 @@ class Worker(threading.Thread):
         self._wake = threading.Event()
         self._stop_event = threading.Event()
         self._pipeline: Pipeline | None = None
+        self._test_pipeline: Pipeline = create_test_pipeline(settings)
 
     def notify(self) -> None:
         """Wake the worker after a job was queued."""
@@ -38,13 +39,12 @@ class Worker(threading.Thread):
     def run(self) -> None:
         try:
             self._pipeline = create_pipeline(self.settings)
-        except Exception as exc:  # broken install: keep the API up so /health can report it
-            self.state = "stopped"
+        except Exception as exc:
+            # Keep serving test jobs and report the problem in /health and in every real job.
             self.last_error = f"pipeline init failed: {exc}"
-            log.exception("pipeline init failed")
-            return
+            log.exception("pipeline init failed; only /v1/test-jobs will be processed")
 
-        if self.settings.prefetch_on_start:
+        if self._pipeline is not None and self.settings.prefetch_on_start:
             self.state = "warming_up"
             try:
                 self._pipeline.prefetch()
@@ -68,12 +68,21 @@ class Worker(threading.Thread):
                 self.state = "idle"
         self.state = "stopped"
 
+    @property
+    def pipeline_ready(self) -> bool:
+        return self._pipeline is not None
+
     def _process(self, job: Job) -> None:
-        assert self._pipeline is not None
+        is_test = bool(job.params.get("test"))
+        pipeline = self._test_pipeline if is_test else self._pipeline
+        if pipeline is None:
+            self.store.fail(job.id, f"Generation pipeline unavailable ({self.last_error}). Test jobs still work.")
+            return
+
         job_dir = self.settings.jobs_dir / job.id
         out_dir = job_dir / "out"
         inputs = sorted(job_dir.glob("input.*"))
-        if not inputs:
+        if not inputs and not is_test:
             self.store.fail(job.id, "input image missing on disk")
             return
 
@@ -85,16 +94,16 @@ class Worker(threading.Thread):
         ctx = JobContext(
             id=job.id,
             params=job.params,
-            input_path=inputs[0],
+            input_path=inputs[0] if inputs else job_dir / "input.png",
             out_dir=out_dir,
             progress=progress,
             set_text=lambda caption, prompt: self.store.set_text(job.id, caption, prompt),
         )
 
         started = time.time()
-        log.info("job %s started", job.id)
+        log.info("%s %s started", "test job" if is_test else "job", job.id)
         try:
-            result = self._pipeline.run(ctx)
+            result = pipeline.run(ctx)
             self.store.finish(job.id, result)
             log.info("job %s done in %.1fs", job.id, time.time() - started)
         except JobCancelled:
@@ -105,11 +114,12 @@ class Worker(threading.Thread):
             shutil.rmtree(out_dir, ignore_errors=True)
             message = _friendly_error(exc)
             self.store.fail(job.id, message)
-            self.last_error = message
+            if not is_test:
+                self.last_error = message
             log.error("job %s failed: %s\n%s", job.id, message, traceback.format_exc())
         finally:
             try:
-                self._pipeline.release()
+                pipeline.release()
             except Exception:
                 log.exception("releasing GPU memory failed")
 

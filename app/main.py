@@ -82,6 +82,7 @@ def health() -> dict[str, Any]:
         "worker": worker.state,
         "worker_error": worker.last_error,
         "mock": settings.mock_pipeline,
+        "pipeline_ready": worker.pipeline_ready,
         "queued": counts.get("queued", 0),
         "running": counts.get("running", 0),
     }
@@ -98,46 +99,43 @@ async def create_job(
     remove_people: bool = Form(True),
     style_strength: float = Form(-1.0, le=1.0, description="0..1 photo style transfer (FLUX Redux). -1 = server default."),
 ) -> JSONResponse:
-    if store.pending_count() >= settings.max_queue:
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Queue is full, try again later.")
     if not use_caption and not prompt.strip():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "use_caption=false requires a prompt.")
-    depth_mode = depth_mode.strip().lower() or settings.depth_mode
-    if depth_mode not in DEPTH_MODES:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"depth_mode must be one of {sorted(DEPTH_MODES)}.")
-
-    data = await image.read(settings.max_upload_bytes + 1)
-    if len(data) > settings.max_upload_bytes:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"Image larger than {settings.max_upload_mb} MB.")
-    try:
-        picture = await asyncio.to_thread(_load_image, data)
-    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
-        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Could not read image: {exc}") from exc
-
+    _check_queue()
     params = {
         "prompt": prompt.strip(),
         "use_caption": use_caption,
         "seed": seed if seed >= 0 else random.randint(0, 2**31 - 1),
         "steps": max(8, steps) if steps else settings.steps,
-        "depth_mode": depth_mode,
+        "depth_mode": _depth_mode(depth_mode),
         "remove_people": remove_people,
         "style_strength": style_strength if style_strength >= 0 else settings.redux_strength,
-        "source_filename": (image.filename or "")[:200],
-        "source_size": [picture.width, picture.height],
     }
+    picture = await _read_image(image)
+    return await _enqueue(params, picture, image.filename)
 
-    job_id = new_job_id()
-    job_dir = settings.jobs_dir / job_id
-    job_dir.mkdir(parents=True, exist_ok=True)
-    await asyncio.to_thread(picture.save, job_dir / "input.png")
-    job = store.create(params, job_id=job_id)
-    worker.notify()
-    log.info("queued job %s (%dx%d, prompt=%r)", job.id, picture.width, picture.height, params["prompt"][:60])
-    return JSONResponse(
-        _job_json(job),
-        status_code=status.HTTP_202_ACCEPTED,
-        headers={"Location": f"/v1/jobs/{job.id}"},
-    )
+
+@app.post("/v1/test-jobs", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_api_key)])
+async def create_test_job(
+    image: UploadFile | None = File(None, description="Optional; shown on a panel 6 m in front of the camera."),
+    seed: int = Form(-1, description="-1 = random (only varies the mountains)."),
+    depth_mode: str = Form("", description="linear | inverse | log. Empty = server default."),
+) -> JSONResponse:
+    """Test run without generation.
+
+    Goes through the same queue, worker, depth encoding, result files and download URLs as
+    /v1/jobs, but skips every AI model and returns a checkerboard test scene within seconds
+    (works even when the GPU pipeline is down). Other form fields of /v1/jobs are accepted and ignored.
+    """
+    _check_queue()
+    params = {
+        "test": True,
+        "prompt": "",
+        "seed": seed if seed >= 0 else random.randint(0, 2**31 - 1),
+        "depth_mode": _depth_mode(depth_mode),
+    }
+    picture = await _read_image(image) if image is not None and image.filename else None
+    return await _enqueue(params, picture, image.filename if image is not None else "")
 
 
 @app.get("/v1/jobs", dependencies=[Depends(require_api_key)])
@@ -196,6 +194,47 @@ def get_job_file(job_id: str, filename: str) -> FileResponse:
 # --------------------------------------------------------------------------
 
 
+def _check_queue() -> None:
+    if store.pending_count() >= settings.max_queue:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Queue is full, try again later.")
+
+
+def _depth_mode(value: str) -> str:
+    mode = value.strip().lower() or settings.depth_mode
+    if mode not in DEPTH_MODES:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"depth_mode must be one of {sorted(DEPTH_MODES)}.")
+    return mode
+
+
+async def _read_image(upload: UploadFile) -> Image.Image:
+    data = await upload.read(settings.max_upload_bytes + 1)
+    if len(data) > settings.max_upload_bytes:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"Image larger than {settings.max_upload_mb} MB.")
+    if not data:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The uploaded image is empty.")
+    try:
+        return await asyncio.to_thread(_load_image, data)
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Could not read image: {exc}") from exc
+
+
+async def _enqueue(params: dict[str, Any], picture: Image.Image | None, filename: str | None) -> JSONResponse:
+    params["source_filename"] = (filename or "")[:200]
+    params["source_size"] = [picture.width, picture.height] if picture is not None else [0, 0]
+    job_id = new_job_id()
+    job_dir = settings.jobs_dir / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    if picture is not None:
+        await asyncio.to_thread(picture.save, job_dir / "input.png")
+    job = store.create(params, job_id=job_id)
+    worker.notify()
+    log.info(
+        "queued %sjob %s (%dx%d, prompt=%r)",
+        "test " if params.get("test") else "", job.id, *params["source_size"], params.get("prompt", "")[:60],
+    )
+    return JSONResponse(_job_json(job), status_code=status.HTTP_202_ACCEPTED, headers={"Location": f"/v1/jobs/{job.id}"})
+
+
 def _get_or_404(job_id: str) -> Job:
     job = store.get(job_id) if job_id.isalnum() else None
     if job is None:
@@ -250,6 +289,7 @@ def _job_json(job: Job) -> dict[str, Any]:
         "depth_far": float(depth.get("far_distance", 0.0)),
         "depth_decode": str(depth.get("decode", "")),
         "people_removed": int(job.result.get("people_removed", 0)),
+        "test": bool(job.params.get("test", False)),
     }
 
 

@@ -38,9 +38,14 @@ class Pipeline(Protocol):
 
 def create_pipeline(settings: Settings) -> Pipeline:
     if settings.mock_pipeline:
-        from .mock import MockPipeline
-
-        return MockPipeline(settings)
+        return create_test_pipeline(settings)
     from .skybox import SkyboxPipeline
 
     return SkyboxPipeline(settings)
+
+
+def create_test_pipeline(settings: Settings) -> Pipeline:
+    """Checkerboard pipeline for /v1/test-jobs: no models, no GPU."""
+    from .mock import CheckerboardPipeline
+
+    return CheckerboardPipeline(settings)

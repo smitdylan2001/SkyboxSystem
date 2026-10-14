@@ -100,14 +100,20 @@ jobs:
                 f"transformers {transformers.__version__} | bitsandbytes {bitsandbytes.__version__}")
           EOF
 
-      - name: "Smoke test: API + queue round trip (mock pipeline)"
+      - name: "Smoke test: API, queue and /v1/test-jobs (runner has no GPU)"
         run: |
-          docker run -d --name skybox -p 8000:8000 -e API_KEYS=ci -e MOCK_PIPELINE=true -e OUT_WIDTH=1024 "$REF"
+          docker run -d --name skybox -p 8000:8000 -e API_KEYS=ci -e OUT_WIDTH=1024 -e PREFETCH_ON_START=false "$REF"
           for i in $(seq 1 60); do curl -fs http://localhost:8000/health && break; sleep 2; done
           echo
+          curl -fs http://localhost:8000/health | grep -q '"pipeline_ready":false'
           docker exec skybox python -c "from PIL import Image; Image.new('RGB', (320, 200), (90, 140, 200)).save('/tmp/in.png')"
-          docker exec skybox python tools/client.py --url http://localhost:8000 --key ci /tmp/in.png --out /tmp/results
+          # Test jobs go through queue, worker and result files without the GPU pipeline.
+          docker exec skybox python tools/client.py --url http://localhost:8000 --key ci --test --out /tmp/results
+          docker exec skybox python tools/client.py --url http://localhost:8000 --key ci --test /tmp/in.png --depth-mode log --out /tmp/results
           docker exec skybox sh -c 'ls -l /tmp/results/*/'
+          # Real jobs must fail with a clear message instead of hanging.
+          ! docker exec skybox python tools/client.py --url http://localhost:8000 --key ci /tmp/in.png --out /tmp/results 2> err.txt
+          grep -q "pipeline unavailable" err.txt && cat err.txt
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/v1/jobs)" = "401"
 
       - name: Container logs

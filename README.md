@@ -120,6 +120,7 @@ All `/v1` endpoints need the header `X-API-Key: <key>` (or `Authorization: Beare
 |---|---|---|
 | `GET` | `/health` | No auth. Worker state and queue length |
 | `POST` | `/v1/jobs` | Queue an image (multipart form), returns `202` and the job JSON |
+| `POST` | `/v1/test-jobs` | **Test run without generation**: same queue, worker, result files and URLs, but returns a checkerboard test scene in seconds (works without GPU). `image` is optional |
 | `GET` | `/v1/jobs/{id}` | Status, queue position, ETA, result URLs |
 | `GET` | `/v1/jobs/{id}/skybox.jpg` | 4096×2048 skybox (JPEG q92) |
 | `GET` | `/v1/jobs/{id}/skybox.png` | Same, lossless |
@@ -159,11 +160,26 @@ All `/v1` endpoints need the header `X-API-Key: <key>` (or `Authorization: Beare
 `status` is one of `queued`, `running`, `done`, `failed`, `cancelled`. While queued, `position` counts the
 jobs ahead (0 = next). `eta_seconds` comes from the average of recent jobs (`-1` until one has finished).
 
+**Test runs (`/v1/test-jobs`).** To check the whole chain (API key, proxy, upload, queue, polling, downloads,
+16-bit depth in Unity, the displacement shader) without waiting for or depending on the GPU pipeline, post
+to `/v1/test-jobs` instead of `/v1/jobs`. It accepts the same form fields and returns a normal job (with
+`"test": true`). The result is a synthetic scene with exact depth:
+
+* a 2 m black/white checkerboard ground (its lines must stay straight and evenly spaced once displaced),
+* a ring of mountains at 150 m, and sky with grid lines every 30°,
+* your uploaded image on a yellow-framed panel 6 m in front of the camera (equirect centre = front),
+* N / E / S / W markers on the horizon.
+
+Test jobs run even when the GPU pipeline failed to start. `/health` then shows `"pipeline_ready": false` and
+the reason in `worker_error`, and real jobs fail immediately with that message instead of waiting.
+
 **Quick test from any PC** (Python standard library only):
 
 ```bash
 python tools/client.py --url https://sky.dylansmit.dev --key YOUR_KEY photo.jpg
 ```
+
+Add `--test` for a checkerboard test run (the image is then optional).
 
 ---
 
