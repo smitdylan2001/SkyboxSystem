@@ -275,7 +275,7 @@ def _job_json(job: Job) -> dict[str, Any]:
         "eta_seconds": job.eta_seconds,
         "error": job.error,
         "caption": job.caption,
-        "style": str(job.result.get("style", job.params.get("style", ""))),
+        "style": str(job.result.get("style") or job.params.get("style") or ""),
         "prompt": job.prompt,
         "seed": int(job.params.get("seed", -1)),
         "created_at": _iso(job.created_at),

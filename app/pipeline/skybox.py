@@ -101,12 +101,12 @@ class SkyboxPipeline:
         with self._stage("text_encoders"):
             embeds, inpaint_embeds = encode_prompts(s.flux_quant_repo, [prompt, inpaint_prompt(description)])
 
-        style = None
+        redux = None
         strength = float(p.get("style_strength", 0) or 0)
         if strength > 0:
             ctx.progress("style", 0.12)
             with self._stage("redux"):
-                style = redux_tokens(s.redux_repo, source) * strength
+                redux = redux_tokens(s.redux_repo, source) * strength
 
         # 3. Panorama.
         def on_step(i: int) -> None:
@@ -115,7 +115,7 @@ class SkyboxPipeline:
         ctx.progress("generating", 0.15)
         with self._stage("transformer"):
             latents = generate_latents(
-                s.flux_quant_repo, s.lora_repo, s.lora_weight, s.lora_scale, embeds, style,
+                s.flux_quant_repo, s.lora_repo, s.lora_weight, s.lora_scale, embeds, redux,
                 s.gen_width, s.gen_height, steps, s.guidance, seed, s.seam_roll_tokens, s.seam_ensemble_steps, on_step,
             )
 
