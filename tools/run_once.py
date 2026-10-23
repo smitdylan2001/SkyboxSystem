@@ -29,6 +29,7 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=-1)
     ap.add_argument("--steps", type=int, default=0)
     ap.add_argument("--style", type=float, default=-1.0, help="Redux style strength 0..1")
+    ap.add_argument("--visual-style", default="", help="e.g. 'stylized 3D animated film render'; empty = detected")
     ap.add_argument("--keep-people", action="store_true")
     ap.add_argument("--vram-gb", type=float, default=0.0, help="cap the CUDA allocator (simulate a smaller GPU)")
     args = ap.parse_args()
@@ -57,6 +58,7 @@ def main() -> None:
         "depth_mode": settings.depth_mode,
         "remove_people": not args.keep_people,
         "style_strength": args.style if args.style >= 0 else settings.redux_strength,
+        "style": args.visual_style,
     }
     last = [""]
 

@@ -15,6 +15,7 @@ namespace SkyboxGenerator
         public int eta_seconds = -1;   // estimated seconds until done (-1 = unknown yet)
         public string error;
         public string caption;
+        public string style;           // visual style used: requested, or detected from the image
         public string prompt;
         public int seed;
         public string skybox_url;      // 4096x2048 JPG (relative URL)
@@ -47,5 +48,6 @@ namespace SkyboxGenerator
         public string depthMode = "";       // "" = server default (linear)
         public bool removePeople = true;
         public float styleStrength = -1f;   // 0..1 FLUX Redux photo style, -1 = server default
+        public string style = "";          // e.g. "stylized 3D animated film render"; empty = detected from the image
     }
 }

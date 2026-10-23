@@ -15,6 +15,7 @@ on:
     paths:
       - "app/**"
       - "tools/**"
+      - "tests/**"
       - "Dockerfile"
       - "docker/**"
       - "requirements.txt"
@@ -42,6 +43,9 @@ jobs:
           df -h /
 
       - uses: actions/checkout@v4
+
+      - name: Unit tests (caption parsing and prompts; no ML dependencies)
+        run: AUTH_DISABLED=true python3 -m unittest discover -s tests -t . -v
 
       - name: Image name (GHCR requires lowercase)
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"

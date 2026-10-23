@@ -45,6 +45,7 @@ namespace SkyboxGenerator
             form.AddField("depth_mode", options.depthMode ?? "");
             form.AddField("remove_people", options.removePeople ? "true" : "false");
             form.AddField("style_strength", options.styleStrength.ToString(CultureInfo.InvariantCulture));
+            if (!string.IsNullOrWhiteSpace(options.style)) form.AddField("style", options.style);
 
             using var req = UnityWebRequest.Post(BaseUrl + "/v1/jobs", form);
             await SendAsync(req, ct);

@@ -12,12 +12,13 @@ from PIL import Image
 
 from ..config import Settings
 from . import JobContext
-from .caption import build_prompt, caption_image
+from .caption import caption_image
 from .depth import estimate_distance, resize_equirect
 from .flux import FLUX_FILES, decode, encode_prompts, generate_latents, inpaint_regions, load_vae, redux_tokens
 from .gpu import download_file, free_gpu
 from .outputs import encode_depth, write_outputs
 from .people import detect_people, plan_regions
+from .prompting import build_prompt, compose_description, inpaint_prompt
 from .sky import segment_sky
 from .upscale import upscale_pano
 
@@ -82,22 +83,23 @@ class SkyboxPipeline:
         seed = int(p["seed"])
         steps = int(p["steps"])
 
-        # 1. Describe the photo (the panorama is newly generated, inspired by it).
+        # 1. Describe the image: its visual style and its scene (the panorama is newly generated, inspired by it).
+        #    A style given with the job wins over the detected one.
         ctx.progress("captioning", 0.01)
-        caption = ""
+        detected_style, caption = "", ""
         if p.get("use_caption", True):
             with self._stage("caption"):
-                caption = caption_image(source, s.caption_model, s.caption_max_tokens)
-        description = " ".join(x for x in (caption, p.get("prompt", "")) if x).strip()
-        prompt = build_prompt(s.prompt_template, description)
-        inpaint_prompt = f"{description} The place is completely empty, nobody is there."
+                detected_style, caption = caption_image(source, s.caption_model, s.caption_max_tokens)
+        style = (p.get("style") or "").strip() or detected_style
+        description = compose_description(caption, style, p.get("prompt", ""))
+        prompt = build_prompt(s.prompt_template, description, style)
         ctx.set_text(caption, prompt)
-        log.info("job %s prompt: %s", ctx.id, prompt)
+        log.info("job %s style: %r (detected %r), prompt: %s", ctx.id, style, detected_style, prompt)
 
         # 2. Text conditioning (both prompts at once; the encoders are loaded only once).
         ctx.progress("encoding_prompt", 0.08)
         with self._stage("text_encoders"):
-            embeds, inpaint_embeds = encode_prompts(s.flux_quant_repo, [prompt, inpaint_prompt])
+            embeds, inpaint_embeds = encode_prompts(s.flux_quant_repo, [prompt, inpaint_prompt(description)])
 
         style = None
         strength = float(p.get("style_strength", 0) or 0)
@@ -167,7 +169,9 @@ class SkyboxPipeline:
         )
         info = write_outputs(pano_out, depth16, ctx.out_dir, s.jpeg_quality)
         log.info("job %s stages: %s", ctx.id, self.stage_stats)
-        return {**info, "depth": depth_meta, "people_removed": removed, "stages": self.stage_stats}
+        return {
+            **info, "depth": depth_meta, "people_removed": removed, "style": style, "stages": self.stage_stats,
+        }
 
     # ------------------------------------------------------------------
 

@@ -98,6 +98,10 @@ async def create_job(
     depth_mode: str = Form("", description="linear | inverse | log. Empty = server default."),
     remove_people: bool = Form(True),
     style_strength: float = Form(-1.0, le=1.0, description="0..1 photo style transfer (FLUX Redux). -1 = server default."),
+    style: str = Form(
+        "", max_length=200,
+        description="Visual style of the panorama, e.g. 'stylized 3D animated film render'. Empty = detected from the image.",
+    ),
 ) -> JSONResponse:
     if not use_caption and not prompt.strip():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "use_caption=false requires a prompt.")
@@ -110,6 +114,7 @@ async def create_job(
         "depth_mode": _depth_mode(depth_mode),
         "remove_people": remove_people,
         "style_strength": style_strength if style_strength >= 0 else settings.redux_strength,
+        "style": " ".join(style.split()),
     }
     picture = await _read_image(image)
     return await _enqueue(params, picture, image.filename)
@@ -270,6 +275,7 @@ def _job_json(job: Job) -> dict[str, Any]:
         "eta_seconds": job.eta_seconds,
         "error": job.error,
         "caption": job.caption,
+        "style": str(job.result.get("style", job.params.get("style", ""))),
         "prompt": job.prompt,
         "seed": int(job.params.get("seed", -1)),
         "created_at": _iso(job.created_at),

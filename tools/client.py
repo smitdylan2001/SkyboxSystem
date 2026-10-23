@@ -57,7 +57,8 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=-1)
     ap.add_argument("--depth-mode", default="")
     ap.add_argument("--keep-people", action="store_true")
-    ap.add_argument("--style", type=float, default=-1.0)
+    ap.add_argument("--style", type=float, default=-1.0, help="Redux style strength 0..1")
+    ap.add_argument("--visual-style", default="", help="e.g. 'stylized 3D animated film render'; empty = detected")
     ap.add_argument("--out", type=Path, default=Path("results"))
     ap.add_argument("--png", action="store_true", help="also download the lossless skybox PNG")
     ap.add_argument("--test", action="store_true", help="use /v1/test-jobs: checkerboard result, no generation")
@@ -73,6 +74,7 @@ def main() -> None:
         "depth_mode": args.depth_mode,
         "remove_people": "false" if args.keep_people else "true",
         "style_strength": str(args.style),
+        "style": args.visual_style,
     }
     body, ctype = multipart(fields, args.image)
     endpoint = "/v1/test-jobs" if args.test else "/v1/jobs"

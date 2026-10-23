@@ -4,7 +4,7 @@ A self-hosted API that turns a photo (or a video frame) into a **360° equirecta
 matching **16-bit depth map**, for a Unity shader that pushes skybox vertices outward by depth.
 
 ```
-photo ─► Qwen3-VL caption ─► FLUX.1-dev + DiT360 panorama LoRA (2048×1024, seamless)
+photo ─► Qwen3-VL caption (style + scene) ─► FLUX.1-dev + DiT360 panorama LoRA (2048×1024, seamless)
       ─► people check (Mask R-CNN) ─► inpaint people away (FLUX)
       ─► sky segmentation (SegFormer) + depth (MoGe-2, 12-view panorama merge)
       ─► Real-ESRGAN ×2 ─► skybox 4096×2048 + depth 4096×2048 (near = white, sky = black)
@@ -12,6 +12,10 @@ photo ─► Qwen3-VL caption ─► FLUX.1-dev + DiT360 panorama LoRA (2048×10
 
 * The panorama is **newly generated, inspired by** the photo (scene, lighting, mood), and the generator is
   asked for an empty scene; anyone who still appears is detected and painted out.
+* It keeps the **visual style** of the input: the captioner names the medium and rendering ("realistic
+  photograph", "stylized 3D animated film render", "anime illustration", ...), and that style leads the FLUX
+  prompt and is repeated at its end. Without it the panorama LoRA, trained on real panoramas, drifts towards
+  photorealism. A job's `style` field overrides the detected style (see `app/pipeline/prompting.py`).
 * Jobs go into a **persistent FIFO queue** (SQLite): first in, first out, and it survives restarts.
 * Built for an **RTX 4070 Super 12 GB shared with other containers and 16 GB of system RAM**. Each stage
   loads its model **entirely onto the GPU** (no CPU offload), runs, and frees the VRAM before the next
@@ -140,6 +144,7 @@ All `/v1` endpoints need the header `X-API-Key: <key>` (or `Authorization: Beare
 | `steps` | server `STEPS` | 8–60 |
 | `depth_mode` | server `DEPTH_MODE` | `linear` / `inverse` / `log` (see below) |
 | `remove_people` | `true` | Detect and inpaint people |
+| `style` | `""` | Visual style of the panorama ("stylized 3D animated film render", "watercolor painting"). Empty = detected from the image |
 | `style_strength` | server `REDUX_STRENGTH` | 0–1, feed the photo's look in via FLUX Redux (needs `HF_TOKEN`) |
 
 **Job JSON** (flat and null-free, so Unity's `JsonUtility` reads it directly):
@@ -148,7 +153,8 @@ All `/v1` endpoints need the header `X-API-Key: <key>` (or `Authorization: Beare
 {
   "id": "3f9c...", "status": "done", "stage": "done", "progress": 1.0,
   "position": -1, "eta_seconds": -1, "error": "",
-  "caption": "A grassy plain with rolling hills ...", "prompt": "This is a panorama. The image shows ...",
+  "caption": "a grassy plain with rolling hills ...", "style": "stylized 3D animated film render",
+  "prompt": "This is a panorama. The image shows a stylized 3D animated film render of a grassy plain ...",
   "seed": 42,
   "skybox_url": "/v1/jobs/3f9c.../skybox.jpg", "depth_raw_url": "/v1/jobs/3f9c.../depth.r16", "...": "...",
   "width": 4096, "height": 2048, "depth_width": 4096, "depth_height": 2048,
@@ -253,7 +259,8 @@ The most useful ones:
 | `STEPS` | `28` | 20 is noticeably faster and slightly softer |
 | `DEPTH_MODE` | `linear` | Per-job override with the `depth_mode` field |
 | `REMOVE_PEOPLE` | `true` | |
-| `REDUX_STRENGTH` | `0` | Try 0.2–0.5 for a closer match to the photo's look (needs `HF_TOKEN`; this path is not covered by the test runs) |
+| `REDUX_STRENGTH` | `0` | Try 0.2–0.5 for a closer match to the photo's look, on top of the style in the prompt (needs `HF_TOKEN`; this path is not covered by the test runs) |
+| `PANO_PROMPT_TEMPLATE` | `This is a panorama. The image shows {prompt}` | `{prompt}` = style + scene description; `{style}` may be used on its own as well |
 | `PEOPLE_MAX_REGIONS` | `8` | Max inpainting crops per job (each crop also covers every other person inside it) |
 | `SEAM_ROLL_TOKENS` / `SEAM_ENSEMBLE_STEPS` | `8` / `4` | Seam handling (see `app/pipeline/flux.py`) |
 | `MAX_QUEUE` / `RESULT_TTL_HOURS` | `50` / `168` | Queue limit (429 when full) and result retention |
